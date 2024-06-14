@@ -418,6 +418,58 @@ func newFramer(conn net.Conn, writeBufferSize, readBufferSize int, sharedWriteBu
 	return f
 }
 
+func (f framer) writeDataN(streamID uint32, endStream bool, datas [][]byte) error {
+	var buf [http2MaxFrameLen]byte
+	offset := 9 // header bytes
+	bufs := buf[:]
+	_ = append(bufs[:0],
+		0, // 3 bytes of size
+		0,
+		0,
+		byte(http2.FrameData),
+		0, // Flags
+		byte(streamID>>24),
+		byte(streamID>>16),
+		byte(streamID>>8),
+		byte(streamID)) // write header bytes
+
+	for i, data := range datas {
+		for len(data) > 0 {
+			maxCopy := min(len(data), http2MaxFrameLen-offset)
+			_ = append(bufs[offset-1:], data[:maxCopy]...)
+			data = data[maxCopy:]
+			offset += maxCopy
+
+			if offset == http2MaxFrameLen {
+				if i == len(datas)-1 && endStream && len(data) == 0 {
+					buf[4] = byte(http2.FlagDataEndStream)
+				}
+				_ = append(bufs[:0], // write size
+					byte(offset>>16),
+					byte(offset>>8),
+					byte(offset))
+				_, err := f.writer.Write(buf[:])
+				if err != nil {
+					return err
+				}
+				offset = 9
+			}
+		}
+	}
+	if endStream {
+		buf[4] = byte(http2.FlagDataEndStream)
+	} else {
+		buf[4] = 0
+	}
+	_ = append(bufs[:0], // write size
+		byte(offset>>16),
+		byte(offset>>8),
+		byte(offset))
+	f.writer.Write(buf[:])
+
+	return nil
+}
+
 func getWriteBufferPool(size int) *sync.Pool {
 	writeBufferMutex.Lock()
 	defer writeBufferMutex.Unlock()

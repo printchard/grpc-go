@@ -927,9 +927,7 @@ func (l *loopyWriter) processData() (bool, error) {
 		}
 		return false, nil
 	}
-	var (
-		buf []byte
-	)
+
 	// Figure out the maximum size we can send
 	maxSize := http2MaxFrameLen
 	if strQuota := int(l.oiws) - str.bytesOutStanding; strQuota <= 0 { // stream-level flow control.
@@ -944,20 +942,6 @@ func (l *loopyWriter) processData() (bool, error) {
 	// Compute how much of the header and data we can send within quota and max frame length
 	hSize := min(maxSize, len(dataItem.h))
 	dSize := min(maxSize-hSize, len(dataItem.d))
-	if hSize != 0 {
-		if dSize == 0 {
-			buf = dataItem.h
-		} else {
-			// We can add some data to grpc message header to distribute bytes more equally across frames.
-			// Copy on the stack to avoid generating garbage
-			var localBuf [http2MaxFrameLen]byte
-			copy(localBuf[:hSize], dataItem.h)
-			copy(localBuf[hSize:], dataItem.d[:dSize])
-			buf = localBuf[:hSize+dSize]
-		}
-	} else {
-		buf = dataItem.d
-	}
 
 	size := hSize + dSize
 
@@ -965,13 +949,10 @@ func (l *loopyWriter) processData() (bool, error) {
 	str.wq.replenish(size)
 	var endStream bool
 	// If this is the last data message on this stream and all of it can be written in this iteration.
-	if dataItem.endStream && len(dataItem.h)+len(dataItem.d) <= size {
-		endStream = true
-	}
 	if dataItem.onEachWrite != nil {
 		dataItem.onEachWrite()
 	}
-	if err := l.framer.fr.WriteData(dataItem.streamID, endStream, buf[:size]); err != nil {
+	if err := l.framer.writeDataN(dataItem.streamID, endStream, [][]byte{dataItem.h[:hSize], dataItem.d[:dSize]}); err != nil {
 		return false, err
 	}
 	str.bytesOutStanding += size
