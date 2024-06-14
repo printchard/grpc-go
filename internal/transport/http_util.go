@@ -385,6 +385,7 @@ func toIOError(err error) error {
 }
 
 type framer struct {
+	buf    [http2MaxFrameLen + 9]byte
 	writer *bufWriter
 	fr     *http2.Framer
 }
@@ -419,11 +420,10 @@ func newFramer(conn net.Conn, writeBufferSize, readBufferSize int, sharedWriteBu
 }
 
 func (f framer) writeDataN(streamID uint32, endStream bool, datas [][]byte) error {
-	var buf [http2MaxFrameLen]byte
 	offset := 9 // header bytes
-	bufs := buf[:]
+	bufs := f.buf[:]
 	_ = append(bufs[:0],
-		0, // 3 bytes of size
+		0, // 3 bytes for size
 		0,
 		0,
 		byte(http2.FrameData),
@@ -431,24 +431,29 @@ func (f framer) writeDataN(streamID uint32, endStream bool, datas [][]byte) erro
 		byte(streamID>>24),
 		byte(streamID>>16),
 		byte(streamID>>8),
-		byte(streamID)) // write header bytes
+		byte(streamID))
 
 	for i, data := range datas {
+		if data == nil {
+			continue
+		}
+
 		for len(data) > 0 {
-			maxCopy := min(len(data), http2MaxFrameLen-offset)
-			_ = append(bufs[offset-1:], data[:maxCopy]...)
+			maxCopy := min(len(data), http2MaxFrameLen-offset+9)
+			_ = append(bufs[:offset], data[:maxCopy]...)
 			data = data[maxCopy:]
 			offset += maxCopy
 
-			if offset == http2MaxFrameLen {
+			if offset-9 == http2MaxFrameLen {
 				if i == len(datas)-1 && endStream && len(data) == 0 {
-					buf[4] = byte(http2.FlagDataEndStream)
+					f.buf[4] = byte(http2.FlagDataEndStream)
 				}
+				size := offset - 9
 				_ = append(bufs[:0], // write size
-					byte(offset>>16),
-					byte(offset>>8),
-					byte(offset))
-				_, err := f.writer.Write(buf[:])
+					byte(size>>16),
+					byte(size>>8),
+					byte(size))
+				_, err := f.writer.Write(f.buf[:])
 				if err != nil {
 					return err
 				}
@@ -456,17 +461,20 @@ func (f framer) writeDataN(streamID uint32, endStream bool, datas [][]byte) erro
 			}
 		}
 	}
-	if endStream {
-		buf[4] = byte(http2.FlagDataEndStream)
-	} else {
-		buf[4] = 0
+	if offset > 9 { // write only if there is more data in buf wo/headers
+		if endStream {
+			f.buf[4] = byte(http2.FlagDataEndStream)
+		} else {
+			f.buf[4] = 0
+		}
+		size := offset - 9
+		_ = append(bufs[:0], // write size
+			byte(size>>16),
+			byte(size>>8),
+			byte(size))
+		_, err := f.writer.Write(f.buf[:offset])
+		return err
 	}
-	_ = append(bufs[:0], // write size
-		byte(offset>>16),
-		byte(offset>>8),
-		byte(offset))
-	f.writer.Write(buf[:])
-
 	return nil
 }
 

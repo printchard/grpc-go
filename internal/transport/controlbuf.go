@@ -942,13 +942,15 @@ func (l *loopyWriter) processData() (bool, error) {
 	// Compute how much of the header and data we can send within quota and max frame length
 	hSize := min(maxSize, len(dataItem.h))
 	dSize := min(maxSize-hSize, len(dataItem.d))
-
 	size := hSize + dSize
 
 	// Now that outgoing flow controls are checked we can replenish str's write quota
 	str.wq.replenish(size)
 	var endStream bool
 	// If this is the last data message on this stream and all of it can be written in this iteration.
+	if dataItem.endStream && len(dataItem.h)+len(dataItem.d) <= size {
+		endStream = true
+	}
 	if dataItem.onEachWrite != nil {
 		dataItem.onEachWrite()
 	}
