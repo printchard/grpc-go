@@ -420,7 +420,8 @@ func newFramer(conn net.Conn, writeBufferSize, readBufferSize int, sharedWriteBu
 }
 
 func (f framer) writeDataN(streamID uint32, endStream bool, datas [][]byte) error {
-	offset := 9 // header bytes
+	const hdrSz int = 9
+	offset := hdrSz // header bytes
 	bufs := f.buf[:]
 	_ = append(bufs[:0],
 		0, // 3 bytes for size
@@ -439,16 +440,16 @@ func (f framer) writeDataN(streamID uint32, endStream bool, datas [][]byte) erro
 		}
 
 		for len(data) > 0 {
-			maxCopy := min(len(data), http2MaxFrameLen-offset+9)
+			maxCopy := min(len(data), http2MaxFrameLen-offset+hdrSz)
 			_ = append(bufs[:offset], data[:maxCopy]...)
 			data = data[maxCopy:]
 			offset += maxCopy
 
-			if offset-9 == http2MaxFrameLen {
+			if offset-hdrSz == http2MaxFrameLen {
 				if i == len(datas)-1 && endStream && len(data) == 0 {
 					f.buf[4] = byte(http2.FlagDataEndStream)
 				}
-				size := offset - 9
+				size := offset - hdrSz
 				_ = append(bufs[:0], // write size
 					byte(size>>16),
 					byte(size>>8),
@@ -457,17 +458,17 @@ func (f framer) writeDataN(streamID uint32, endStream bool, datas [][]byte) erro
 				if err != nil {
 					return err
 				}
-				offset = 9
+				offset = hdrSz
 			}
 		}
 	}
-	if offset > 9 { // write only if there is more data in buf wo/headers
+	if offset > hdrSz { // write only if there is more data in buf wo/headers
 		if endStream {
 			f.buf[4] = byte(http2.FlagDataEndStream)
 		} else {
 			f.buf[4] = 0
 		}
-		size := offset - 9
+		size := offset - hdrSz
 		_ = append(bufs[:0], // write size
 			byte(size>>16),
 			byte(size>>8),
