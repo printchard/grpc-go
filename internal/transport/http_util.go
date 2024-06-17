@@ -329,9 +329,23 @@ func (w *bufWriter) Write(b []byte) (n int, err error) {
 		b := w.pool.Get().(*[]byte)
 		w.buf = *b
 	}
-	for len(b) > 0 {
+	bSize := len(b)
+	for bSize > 0 {
+		if bSize >= w.batchSize {
+			err = w.flushKeepBuffer()
+			if err != nil {
+				return
+			}
+			nn, e := w.conn.Write(b[:w.batchSize])
+			err = e
+			n += nn
+			b = b[w.batchSize:]
+			bSize -= nn
+			continue
+		}
 		nn := copy(w.buf[w.offset:], b)
 		b = b[nn:]
+		bSize -= nn
 		w.offset += nn
 		n += nn
 		if w.offset >= w.batchSize {
