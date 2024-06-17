@@ -385,7 +385,7 @@ func toIOError(err error) error {
 }
 
 type framer struct {
-	buf    [http2MaxFrameLen + 9]byte
+	buf    [9]byte
 	writer *bufWriter
 	fr     *http2.Framer
 }
@@ -420,61 +420,33 @@ func newFramer(conn net.Conn, writeBufferSize, readBufferSize int, sharedWriteBu
 }
 
 func (f framer) writeDataN(streamID uint32, endStream bool, datas [][]byte) error {
-	const hdrSz int = 9
-	offset := hdrSz // header bytes
-	bufs := f.buf[:]
-	_ = append(bufs[:0],
-		0, // 3 bytes for size
-		0,
-		0,
-		byte(http2.FrameData),
-		0, // Flags
-		byte(streamID>>24),
-		byte(streamID>>16),
-		byte(streamID>>8),
-		byte(streamID))
-
-	for i, data := range datas {
-		if data == nil {
-			continue
-		}
-
-		for len(data) > 0 {
-			maxCopy := min(len(data), http2MaxFrameLen-offset+hdrSz)
-			_ = append(bufs[:offset], data[:maxCopy]...)
-			data = data[maxCopy:]
-			offset += maxCopy
-
-			if offset-hdrSz == http2MaxFrameLen {
-				if i == len(datas)-1 && endStream && len(data) == 0 {
-					f.buf[4] = byte(http2.FlagDataEndStream)
-				}
-				size := offset - hdrSz
-				_ = append(bufs[:0], // write size
-					byte(size>>16),
-					byte(size>>8),
-					byte(size))
-				_, err := f.writer.Write(f.buf[:])
-				if err != nil {
-					return err
-				}
-				offset = hdrSz
-			}
-		}
+	tSize := 0
+	for _, data := range datas {
+		tSize += len(data)
 	}
-	if offset > hdrSz { // write only if there is more data in buf wo/headers
-		if endStream {
-			f.buf[4] = byte(http2.FlagDataEndStream)
-		} else {
-			f.buf[4] = 0
-		}
-		size := offset - hdrSz
-		_ = append(bufs[:0], // write size
-			byte(size>>16),
-			byte(size>>8),
-			byte(size))
-		_, err := f.writer.Write(f.buf[:offset])
+
+	f.buf[0] = byte(tSize >> 16)
+	f.buf[1] = byte(tSize >> 8)
+	f.buf[2] = byte(tSize)
+	f.buf[3] = byte(http2.FrameData)
+	if endStream {
+		f.buf[4] = byte(http2.FlagDataEndStream)
+	} else {
+		f.buf[4] = byte(0)
+	}
+	f.buf[5] = byte(streamID >> 24)
+	f.buf[6] = byte(streamID >> 16)
+	f.buf[7] = byte(streamID >> 8)
+	f.buf[8] = byte(streamID)
+	_, err := f.writer.Write(f.buf[:])
+	if err != nil {
 		return err
+	}
+	for _, data := range datas {
+		_, err = f.writer.Write(data)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
