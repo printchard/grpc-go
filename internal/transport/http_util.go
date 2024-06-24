@@ -386,7 +386,7 @@ func toIOError(err error) error {
 
 type framer struct {
 	writer *bufWriter
-	fr     *http2.Framer
+	fr     GRPCFramer
 }
 
 var writeBufferPoolMap map[int]*sync.Pool = make(map[int]*sync.Pool)
@@ -405,16 +405,17 @@ func newFramer(conn net.Conn, writeBufferSize, readBufferSize int, sharedWriteBu
 		pool = getWriteBufferPool(writeBufferSize)
 	}
 	w := newBufWriter(conn, writeBufferSize, pool)
+	hfr := http2.NewFramer(w, r)
 	f := &framer{
 		writer: w,
-		fr:     http2.NewFramer(w, r),
+		fr:     hfr,
 	}
-	f.fr.SetMaxReadFrameSize(http2MaxFrameLen)
+	hfr.SetMaxReadFrameSize(http2MaxFrameLen)
 	// Opt-in to Frame reuse API on framer to reduce garbage.
 	// Frames aren't safe to read from after a subsequent call to ReadFrame.
-	f.fr.SetReuseFrames()
-	f.fr.MaxHeaderListSize = maxHeaderListSize
-	f.fr.ReadMetaHeaders = hpack.NewDecoder(http2InitHeaderTableSize, nil)
+	hfr.SetReuseFrames()
+	hfr.MaxHeaderListSize = maxHeaderListSize
+	hfr.ReadMetaHeaders = hpack.NewDecoder(http2InitHeaderTableSize, nil)
 	return f
 }
 
