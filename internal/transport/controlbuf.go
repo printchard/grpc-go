@@ -32,6 +32,7 @@ import (
 	"golang.org/x/net/http2/hpack"
 	"google.golang.org/grpc/internal/grpclog"
 	"google.golang.org/grpc/internal/grpcutil"
+	"google.golang.org/grpc/internal/transport/grpcframer"
 	"google.golang.org/grpc/status"
 )
 
@@ -977,7 +978,7 @@ func (l *loopyWriter) processData() (bool, error) {
 	}
 
 	switch fr := l.framer.fr.(type) {
-	case *Framer:
+	case *grpcframer.Framer:
 		if err := fr.WriteDataN(dataItem.streamID, endStream, dataItem.h[:hSize], dataItem.d[:dSize]); err != nil {
 			return false, err
 		}

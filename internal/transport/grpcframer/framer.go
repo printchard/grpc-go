@@ -16,12 +16,13 @@
  *
  */
 
-package transport
+package grpcframer
 
 import (
 	"io"
 
 	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/hpack"
 )
 
 type GRPCFramer interface {
@@ -46,7 +47,7 @@ type Framer struct {
 	hdrBuf     [9]byte
 }
 
-func newGRPCFramer(w io.Writer, r io.Reader) *Framer {
+func NewFramer(w io.Writer, r io.Reader) *Framer {
 	return &Framer{
 		w:          w,
 		stubFramer: http2.NewFramer(w, r),
@@ -165,4 +166,20 @@ func (f *Framer) WriteSettingsAck() error {
 
 func (f *Framer) WriteWindowUpdate(streamID uint32, incr uint32) error {
 	return f.stubFramer.WriteWindowUpdate(streamID, incr)
+}
+
+func (f *Framer) SetReuseFrames() {
+	f.stubFramer.SetReuseFrames()
+}
+
+func (f *Framer) SetMaxReadFrameSize(v uint32) {
+	f.stubFramer.SetMaxReadFrameSize(v)
+}
+
+func (f *Framer) SetMaxHeaderListSize(v uint32) {
+	f.stubFramer.MaxHeaderListSize = v
+}
+
+func (f *Framer) SetReadMetaHeaders(d *hpack.Decoder) {
+	f.stubFramer.ReadMetaHeaders = d
 }
