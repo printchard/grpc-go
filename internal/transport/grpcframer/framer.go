@@ -16,6 +16,9 @@
  *
  */
 
+// grpcframer package defines the API that a framer implementation has to have,
+// alongside a custom implementation of a HTTP2 Framer. It is meant for grpc
+// internal usage only and should not be imported directly by users.
 package grpcframer
 
 import (
