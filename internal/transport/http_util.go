@@ -37,6 +37,7 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/internal/envconfig"
 )
 
 const (
@@ -405,17 +406,28 @@ func newFramer(conn net.Conn, writeBufferSize, readBufferSize int, sharedWriteBu
 		pool = getWriteBufferPool(writeBufferSize)
 	}
 	w := newBufWriter(conn, writeBufferSize, pool)
-	hfr := http2.NewFramer(w, r)
-	f := &framer{
-		writer: w,
-		fr:     hfr,
+	f := &framer{writer: w}
+
+	if envconfig.GRPCHTTP2Framer == "EXPERIMENTAL" {
+		tfr := newGRPCFramer(w, r)
+		tfr.stubFramer.SetMaxReadFrameSize(http2MaxFrameLen)
+		// Opt-in to Frame reuse API on framer to reduce garbage.
+		// Frames aren't safe to read from after a subsequent call to ReadFrame.
+		tfr.stubFramer.SetReuseFrames()
+		tfr.stubFramer.MaxHeaderListSize = maxHeaderListSize
+		tfr.stubFramer.ReadMetaHeaders = hpack.NewDecoder(http2InitHeaderTableSize, nil)
+		f.fr = tfr
+	} else {
+		hfr := http2.NewFramer(w, r)
+		hfr.SetMaxReadFrameSize(http2MaxFrameLen)
+		// Opt-in to Frame reuse API on framer to reduce garbage.
+		// Frames aren't safe to read from after a subsequent call to ReadFrame.
+		hfr.SetReuseFrames()
+		hfr.MaxHeaderListSize = maxHeaderListSize
+		hfr.ReadMetaHeaders = hpack.NewDecoder(http2InitHeaderTableSize, nil)
+		f.fr = hfr
 	}
-	hfr.SetMaxReadFrameSize(http2MaxFrameLen)
-	// Opt-in to Frame reuse API on framer to reduce garbage.
-	// Frames aren't safe to read from after a subsequent call to ReadFrame.
-	hfr.SetReuseFrames()
-	hfr.MaxHeaderListSize = maxHeaderListSize
-	hfr.ReadMetaHeaders = hpack.NewDecoder(http2InitHeaderTableSize, nil)
+
 	return f
 }
 
